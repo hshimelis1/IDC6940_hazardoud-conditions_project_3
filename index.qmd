@@ -1,5 +1,5 @@
 ---
-title: "Cox regression modeling of survival"
+title: "Cox regression modeling of survival after chemotherapy for colon cancer"
 author: "Hermela Shimelis"
 date: today
 format:
