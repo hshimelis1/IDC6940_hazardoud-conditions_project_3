@@ -61,6 +61,8 @@ Column names:
 #| message: false
 #| warning: false
 
+
+
 # Load library
 library(dplyr)
 library(survival)
@@ -311,7 +313,7 @@ between the three groups.
 </style>
 ```
 |                                             |                            | Observation (%) | Amisole (%)  | Amisole + 5-FU (%) |
-|------------------|------------------|:----------------:|:-------------:|:--------------------:|
+|---------------|---------------|:-------------:|:-------------:|:-------------:|
 |                                             |                            |      N=315      |    N=310     |       N=304        |
 | **Demographics**                            |                            |                 |              |                    |
 |                                             | Male                       |   166 (52.3)    |  177 (57.1)  |        141         |
@@ -477,7 +479,8 @@ m0 <- coxph(Surv(time, status) ~ 1, data = colon_surv)
 summary(m0)
 ```
 
-#### Perform cox regression to test whether treatment is significant predictor
+### Univariate analysis
+##### Test significance of treatment as a predictor
 
 ```{r}
 
@@ -506,7 +509,7 @@ about 31% lower compared to the observation group.
 
 The p-values indicate that the model is significant.
 
-### Test the Cox proportional hazard assumption
+#### Test the Cox proportional hazard assumption
 
 ```{r}
 
@@ -524,9 +527,10 @@ plot(zph_test)
 scattered randomly and the smooth trend line is horizontal near 0. This
 suggests that the hazard ratio for rx (treatment status) is constant
 over time and the proportional hazard assumption is met. The global
-p-value is \>0.05, indicating that the the assumption is met.
+p-value is >0.05, indicating that the the assumption is met.
 
-#### Perform multivariate analysis, including all variables to determine which predictors are significant.
+### Multivariate analysis
+#### Include all variables to determine which predictors are significant.
 
 ```{r}
 #| echo: true
@@ -566,17 +570,13 @@ print(vif)
 **Insight:** None of the variables have VIF values above 5, therefore
 there is no multicollinearity
 
-#### Variable selection method 1. Model survival while including different cancer characteristics as predictors separately to identify significance predictors.
+#### Evaluate significance of predictors. Model survival while including different cancer characteristics as predictors separately to identify significance predictors.
 
 ```{r}
-
+# model including all variables
 m2 <- coxph(Surv(time, status) ~ rx+ age + sex + perfor + adhere + surg + obstruct + differentiation + node4+
               local_spread, data = df)  
 
-m3 <- coxph(Surv(time, status) ~ rx + adhere + surg + obstruct + differentiation + node4+
-              local_spread, data = df)
-summary(m3)
-anova(m3)
 
 # Treatment
 m2a <- coxph(Surv(time, status) ~ rx, data = colon_surv) # significant
@@ -587,7 +587,7 @@ m2b <- coxph(Surv(time, status) ~ age + sex, data = colon_surv) # not significan
 summary(m2b)
 
 
-# cancer characterstics
+# cancer characteristics
 m2c <- coxph(Surv(time, status) ~ perfor + adhere + obstruct, data = colon_surv) # adhere and obstruct are significant
 summary(m2c)
 
@@ -609,19 +609,61 @@ summary(m2h)
 
 
 # include significant predictors in final model
-model <- coxph(Surv(time, status) ~ rx + adhere + surg + obstruct + differentiation
+m2i <- coxph(Surv(time, status) ~ rx + adhere + surg + obstruct + differentiation
               + local_spread, data = colon_surv)
 
-summary(model)
+summary(m2i)
 
 
 ```
 
-### Test proportional hazard assumption for the model with significant predictors
+**Insight:** rx, adhere, surg, obstruct, differentiation and local_spread are significant predictors. However, the model concordance is low (~0.5) when ecah were included separately. Model m2i has the highest conncorance. 
+
+### Perform Stepwise variable selection: 
+#### Use the MASS package stepAIC() function for stepwise selection by using AIC (Akaike Information Criterion) as the measure to add or remove predictors from the model.
 
 ```{R}
-cox.zph(model)
-zph_test <- cox.zph(m2)
+
+library(MASS)       # for stepwise regression
+
+
+# model including all variables
+m2 <- coxph(Surv(time, status) ~ rx+ age + sex + perfor + adhere + surg + obstruct + differentiation + node4+
+              local_spread, data = df)  
+
+# stepwise selection
+stepwise_model <- stepAIC(m2, direction = "both")
+
+summary(stepwise_model)
+
+```
+
+```{r}
+
+# Multivariate model including variables selected based on stepwise variable selection. The same variables were significant based on anova test of the model that included all variables.
+
+m3 <- coxph(Surv(time, status) ~ rx + age + surg + obstruct + 
+    differentiation + node4 + local_spread, data = df)
+summary(m3)
+anova(m3)
+
+cox_summary <- tidy(m3)
+
+cox_summary
+
+```
+
+
+### Test whether proportional hazard assumptions are met for multipvariable moel predictors
+
+```{R}
+m3 <- coxph(Surv(time, status) ~ rx + age + surg + obstruct + 
+    differentiation + node4 + local_spread, data = df)
+summary(m3)
+anova(m3)
+
+cox.zph(m3) # final model with stepwise variable selection
+zph_test <- cox.zph(m3)
 
 print(zph_test)
 
@@ -631,103 +673,90 @@ plot(zph_test)
 
 ```
 
-**Insight:** Differentiation variable does not meet proportional hazards
-assumption.
+**Insight:** Differentiation, node4 and obstruct variables did not meet
+proportional hazards assumption.
 
-#### Variable selection method 2: Use the MASS package stepAIC() function for stepwise selection by using AIC (Akaike Information Criterion) as the measure to add or remove predictors from the model.
-
-```{R}
-
-library(MASS)       # for stepwise regression
-library(boot)       # for cross-validation
-```
-
-### Perform Stepwise variable selection
-
-```{R}
-
-# stepwise selection
-stepwise_model <- stepAIC(m3, direction = "both")
-
-summary(stepwise_model)
-```
+### Stratify model by variables violating roportional hazard assumption 
 
 ```{r}
+m4 <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 +
+              local_spread, data = df)
+summary(m4)
 
-# FINAL MODEL: Multivariate model including variables selected based on stepwise variable selection. The same variables were significant based on anova test of the model that included all variables.
+summary(m4)
 
-m2_select <- coxph(formula = Surv(time, status) ~ rx + surg + obstruct + 
-    differentiation + node4 + local_spread, data = df)
+cox.zph(m4) # final model with stratification by proportional hazard violating variables 
+zph_test <- cox.zph(m4)
 
+print(zph_test)
 
-
-summary(m2_select)
-
-cox_summary <- tidy(m2_select)
-
-
-
+# plot the Schoenfeld residuals
+plot(zph_test)
 ```
 
-### Cross-Validation for Model Evaluation
+**Insight:** After model stratification by obstruct and differentiation, the proportional hazard assumption is met. 
+
+### Perform 5-fold cross-validation for model evaluation with proper stratification of boot samples
+
+To include proper stratification in all 5 samples, including fold assignment steps
 
 ```{r}
-#| echo: true
-#| message: false
-#| warning: false
+library(survival)
+library(boot)  # for bootstrapping
+library(survcomp)  # to calculate c-index
+library(caret)
 
-# cross validation function
-cv_cox <- function(data, indices) {
-  # subset data
-  d <- data[indices, ]
-  
-  # fit model on subset
-  fit <- coxph(Surv(time, status) ~ rx + age+ surg + obstruct + differentiation + node4 +
-    local_spread, data = df)
-  
-  # return the concordance index (C-index)
-  return(survConcordance(Surv(time, status) ~ predict(fit), data = d)$concordance)
+
+# set a seed
+set.seed(1234)
+
+# Cox model 
+cox_model <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 + local_spread, data = df)
+
+# calculate the original c-index
+c_index_original <- concordance.index(predict(cox_model), surv.time = df$time, surv.event = df$status)$c.index
+cat("original c-index:", c_index_original, "\n")
+
+# create a function for calculating c-index in each fold
+cox_cindex <- function(train_data, test_data) {
+  fit <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 + local_spread, data = train_data)
+  predictions <- predict(fit, newdata = test_data)
+  c_index <- concordance.index(predictions, surv.time = test_data$time, surv.event = test_data$status)$c.index
+  return(c_index)
 }
 
-# Set seed for reproducibility
-set.seed(45)
+# perform 5-fold cross-validation with stratification
+K <- 5
+folds <- createFolds(c(df$status, df$differentiation, df$rx), k = K, list = TRUE, returnTrain = TRUE)
+cv_c_indices <- sapply(folds, function(train_indices) {
+  train_data <- df[train_indices, ]
+  test_data <- df[-train_indices, ]
+  cox_cindex(train_data, test_data) # cox_cindex is defined to fit the cox model on training data and calculate the c-index for test data in each fold.
+}) # createFolds from the caret package to perform stratified 5-fold cross-validation, ensuring balance across strata
 
-# perform 100-fold cross-validation
-cv_results <- boot(data = df, statistic = cv_cox, R = 100)
+# cross-validation c-indices
+cat("cross-validated c-Indices for each fold:", cv_c_indices, "\n")
+cat("mean cross-validated c-Index:", mean(cv_c_indices), "\n")
 
-cv_results
-```
-
-### Visualization of cross-validation results: plot concordance index from bootstrap samples
-
-```{R}
-# Print summary of cross-validation results
-median(cv_results$t)
-# Visualize results
-
-plot(cv_results)
+# plot cross-validation c-indices
+plot(cv_c_indices, type = "b", xlab = "Fold", ylab = "c-index", main = "c-index across folds")
 
 ```
-
-**Insight:** The concordance index (c-index) of the original model
-(0.67) is higher than the median bootstrap samples concordance (0.5),
-suggesting overestimation of of model performance on the original
-dataset. The model predictive power could be be improved based on the
-c-index.
+**Insight:** The original model c-index (0.654) and mean cross-validation c-index (0.655) is very similar, suggesting the the final model is stable and is not overfitting.
 
 # V. Results
 
 ### Table 2. Univariate model: Survival after Chemotherapy for stage B/C Colon Cancer
 
 | Treatment      | Coefficient | Hazard ratio | 95% CI_upper | 95% CI_lower | P-value |
-|--------------|:----------:|:----------:|:----------:|:----------:|:----------:|
+|------------|:----------:|:----------:|:----------:|:----------:|:----------:|
 | Amisole (Lev)  |   -0.027    |    0.974     |    0.784     |    1.209     |  0.809  |
 | Amisole + 5-FU |   -0.372    |    0.690     |    0.546     |    0.870     |  0.002  |
 
 ### Table 3. Multivariate model: Survival after Chemotherapy for stage B/C Colon Cancer
 
 | Treatment              | Coefficient | Hazard ratio | 95% CI_upper | 95% CI_lower |    P-value     |
-|--------------------|:----------:|:----------:|:----------:|:----------:|:----------:|
+|------------|:----------:|:----------:|:----------:|:----------:|:----------:|
 | Amisole (Lev)          |   -0.011    |    0.989     |    0.795     |    1.231     |     0.923      |
 | Amisole + 5-FU         |   -0.376    |    0.687     |    0.543     |    0.868     |     0.002      |
 | Age                    |    0.007    |    1.007     |    0.999     |    1.015     |     0.069      |
