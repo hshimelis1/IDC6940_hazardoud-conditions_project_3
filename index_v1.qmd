@@ -1,0 +1,766 @@
+---
+title: "Cox regression modeling of survival after chemotherapy for colon cancer"
+author: "Hermela Shimelis"
+date: today
+format:
+  html:
+    code-fold: False
+    css: custom.css
+    toc: true
+    toc_float:
+      collapsed: TRUE
+bibliography: references.bib # file contains bibtex for references
+#always_allow_html: true # this allows to get PDF with HTML features
+csl: ieee.csl
+self-contained: true
+execute: 
+  warning: false
+  message: false
+editor: 
+  markdown: 
+    wrap: 72    
+---
+
+## Data: Survival after chemotherapy for Stage B/C colon cancer @survival-book @survival-package
+
+### Description
+
+These are data from one of the first successful trials of adjuvant
+chemotherapy for colon cancer. Levamisole is a low-toxicity compound
+previously used to treat worm infestations in animals; 5-FU is a
+moderately toxic (as these things go) chemotherapy agent. There are two
+records per person, one for recurrence and one for death.
+
+The purpose of this project is to compare survival between the untreated
+(Obs) group vs those treated with amisole (Lev), or amisole + 5-FU.
+
+Column names:
+
+|           |                                                                                   |
+|:-------------------------|:---------------------------------------------|
+| id:       | id                                                                                |
+| study:    | 1 for all patients                                                                |
+| rx:       | Treatment - Obs(ervation), Lev(amisole), Lev(amisole)+5-FU                        |
+| sex:      | 1=male                                                                            |
+| age:      | in years                                                                          |
+| obstruct: | obstruction of colon by tumour                                                    |
+| perfor:   | perforation of colon                                                              |
+| adhere:   | adherence to nearby organs                                                        |
+| nodes:    | number of lymph nodes with detectable cancer                                      |
+| time:     | days until event or censoring                                                     |
+| status:   | censoring status                                                                  |
+| differ:   | differentiation of tumour (1=well, 2=moderate, 3=poor)                            |
+| extent:   | Extent of local spread (1=submucosa, 2=muscle, 3=serosa, 4=contiguous structures) |
+| surg:     | time from surgery to registration (0=short, 1=long)                               |
+| node4:    | more than 4 positive lymph nodes                                                  |
+| etype:    | event type: 1=recurrence,2=death                                                  |
+|           |                                                                                   |
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+
+
+
+# Load library
+library(dplyr)
+library(survival)
+library(janitor)
+library(magrittr)
+library(car)
+library(ggplot2)
+library(tidyverse)
+library(broom)
+library(MASS)
+library(boot)
+
+#print(citation("survival"), bibtex=TRUE)
+
+```
+
+```{r}
+#| echo: true
+#| message: false
+
+#Load data
+colon <- as_tibble(colon)
+head(colon)
+```
+
+Since the current analysis is focused on survival, filter data to death
+as the event type. This will create a data table with one row per
+individual.
+
+```{r}
+colon_surv <- colon%>%filter(etype == 2) 
+
+```
+
+Identify participants who had recurrence. Identify those not censored
+for recurrence event. Filter event type = 1 (recurrence), status = 0.
+
+```{r}
+recurrence <- colon%>%filter(etype == 1 & status == 0)%>%dplyr::select(id,time)
+recurrence <- recurrence%>%mutate(recurrence_y = 1) # list of patients with recurrence
+recurrence <- recurrence%>%rename(recurrence_time = time )
+
+colon_surv <- colon_surv%>%merge(recurrence, by = "id", all.x = TRUE)
+colon_surv$recurrence_y[is.na(colon_surv$recurrence_y)] <- 0
+
+```
+
+## I. Exploratory data analysis
+
+**Check missing values**
+
+```{r}
+
+na_counts <- sapply(colon_surv, function(x)sum(is.na(x)))
+na_counts
+
+# replace NAs with mode
+table(colon_surv$differ)
+mode(colon_surv$differ)
+median(colon_surv$nodes, na.rm= TRUE)
+
+colon_surv$differ <- if_else(is.na(colon_surv$differ), 2,colon_surv$differ) 
+colon_surv$nodes <- if_else(is.na(colon_surv$nodes), 2,colon_surv$nodes)
+```
+
+**Insight:** only nodes and differ columns have NA values. Replacing the
+23 NAs in differ column with mode, and replace NAs in nodes with median.
+
+**Evaluate continuous variables**
+
+```{r}
+#| echo: true
+#| message: false
+
+# age
+hist(colon_surv$age)
+hist(colon_surv$nodes)
+hist(colon_surv$time)
+
+
+```
+
+**Insight:** Age is normally distribute. Number of nodes is skewed to
+the right. Time is fairly normally distributed with most the individuals
+had event time between 500-3000 days.
+
+Evaluate nodes column to investigate outliers
+
+```{r}
+t <- colon_surv%>%filter(node4 ==1) # samples with more than 4 positive lymph nodes
+hist(t$nodes) 
+
+
+```
+
+**Insight:** samples with greater than 4 lymph nodes have less than 5
+count in nodes column, so the two columns are not consistent. Therefore,
+nodes column will not be used for further analysis.
+
+**Evaluate categorical variables**
+
+```{r }
+#| echo: true
+#| message: false
+ 
+summary_table <- colon_surv%>%summarise(count =n(),
+                                        male = sum(sex), 
+                                                       median_age = median(age),
+                                                       ct_perforation = sum(perfor),
+                                                       ct_adherence_nerby_organ = sum(adhere), censored = sum(status))
+
+summary_table
+```
+
+**Insight:** Total number of participants: 929. About half of the
+participants are male and about half were censored, while the other half
+died.
+
+```{r}
+
+colon_surv <- colon_surv%>%mutate(differentiation = case_when(differ == 1 ~ "well",
+                                                              differ == 2 ~ "moderate",
+                                                              differ == 3 ~ "poor"),
+                                  local_spread = case_when(extent == 1 ~ "submucosa",
+                                                           extent == 2 ~ "muscle",
+                                                           extent == 3 ~ "serosa",
+                                                           extent == 4 ~ "contiguous"),
+                                  surg_to_reg_time = case_when(surg == 0~ "short",
+                                                               surg == 1 ~ "long"))
+
+
+
+```
+
+**Frequency tables for categorical variables**
+
+```{r}
+#| warning: false
+
+# frequency tables for categorical variables
+# Tumor differentiation
+
+colon_surv %>% 
+  tabyl(differentiation, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+# extent of local spread
+colon_surv %>% 
+  tabyl(local_spread, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+# colum obstruction
+colon_surv %>% 
+  tabyl(obstruct, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+
+# colon perforation
+colon_surv %>% 
+  tabyl(perfor, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+# Adherance to nearby organs
+colon_surv %>% 
+  tabyl(adhere, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+# extent of local tumor spread
+colon_surv %>% 
+  tabyl(local_spread, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+
+# More than 4 lymph nodes with cancer
+colon_surv %>% 
+  tabyl(node4, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>%
+  adorn_ns()
+
+
+# time from surgery to registration
+colon_surv %>% 
+  tabyl(surg, rx) %>%
+  adorn_percentages("col") %>%
+  adorn_pct_formatting(digits = 1) %>% 
+  adorn_ns()
+```
+
+\
+**Summary statistics grouped by treatment**
+
+```{r #| echo: true#| message: false}
+
+summary_table <- colon_surv%>%group_by(rx)%>%summarise(count =n(),
+                                                       male = sum(sex),
+                                                       median_age = median(age),
+                                                       ct_perforation = sum(perfor),
+                                                       ct_adherence_nerby_organ = sum(adhere),
+                                                       perc_male = (male/count)*100,
+                                                       iqr_age = IQR(age))
+summary_table
+
+
+```
+
+**Insight:** Each treatment group had about 300 participants. Median
+age, number of participants with perforation and adherence are similar
+between the three groups.
+
+## II. Table 1: Description of the study population
+
+```{=html}
+<style type="text/css">
+.tg  {border-collapse:collapse;border-spacing:0;}
+.tg td{border-color:black;border-style:solid;border-width:1px;font-family:Arial, sans-serif;font-size:14px;
+  overflow:hidden;padding:10px 5px;word-break:normal;}
+.tg th{border-color:black;border-style:solid;border-width:1px;font-family:Arial, sans-serif;font-size:14px;
+  font-weight:normal;overflow:hidden;padding:10px 5px;word-break:normal;}
+.tg .tg-bobw{font-weight:bold;text-align:center;vertical-align:bottom}
+.tg .tg-7zrl{text-align:left;vertical-align:bottom}
+.tg .tg-8d8j{text-align:center;vertical-align:bottom}
+.tg .tg-j6zm{font-weight:bold;text-align:left;vertical-align:bottom}
+</style>
+```
+|                                             |                            | Observation (%) | Amisole (%)  | Amisole + 5-FU (%) |
+|---------------|---------------|:-------------:|:-------------:|:-------------:|
+|                                             |                            |      N=315      |    N=310     |       N=304        |
+| **Demographics**                            |                            |                 |              |                    |
+|                                             | Male                       |   166 (52.3)    |  177 (57.1)  |        141         |
+|                                             | Median age (years) \[IQR\] |  60 \[53,68\]   | 61 \[53,69\] |    61 \[52,70\]    |
+| **Cancer characteristics**                  |                            |                 |              |                    |
+|                                             | Colon obstruction          |    63 (20.0)    |  63 (20.3)   |     54 (17.8)      |
+|                                             | Colon perforation          |     9 (2.9)     |   10 (3.2)   |      8 (2.6)       |
+|                                             | Adherence to nearby organs |    47 (14.9)    |  49 (15.8)   |     39 (12.8)      |
+| Differentiation of tumor                    |                            |                 |              |                    |
+|                                             | Well                       |    27 (8.6)     |  37 (11.9)   |      29 (9.5)      |
+|                                             | Moderate                   |   236 (74.9)    |  229 (73.9)  |     221 (72.7)     |
+|                                             | Poor                       |    52 (16.5)    |  44 (14.2)   |     54 (17.8)      |
+| Extent of local spread                      |                            |                 |              |                    |
+|                                             | Contiguous                 |    20 (6.3)     |   12 (3.9)   |      11 (3.6)      |
+|                                             | Muscle                     |    38 (12.1)    |  36 (11.6)   |     32 (10.5)      |
+|                                             | Serosa                     |   249 (79.0)    |  259 (83.5)  |     251 (82.6)     |
+|                                             | Submucosa                  |     8 (2.5)     |   3 (1.0)    |      10 (3.3)      |
+| More than 4 lymph nodes with cancer         | Yes                        |    87 (27.6)    |  89 (28.7)   |     79 (26.0)      |
+| Short time from surgery to registration (%) | Yes                        |    91 (28.9)    |  80 (25.8)   |     76 (25.0)      |
+
+# III. Methods
+
+The Cox proportional hazards model was used to model the relationship
+between survival time and different lung cancer treatments. In
+particlular the survival time will be compared between the untreated
+group (observation) vs. those treated with amisole (Lev), or amisole +
+5-FU. The Cox regression model was chosen for this study because it is
+useful for studying association between survival time of patients and
+predictors and allows estimating the relative risk or hazard ratios due
+to the covariates, i.e., treatment status. The time (in days) until
+event, i.e, death, will be modeled as a function of treatment and other
+variables, including age, sex, and various tumor characteristics.
+Significant predictors were included in the final model.
+
+## Statistical analysis
+
+The R statistical software version 4.3.2 [@R_citation] was used for all
+analysis. The Survival package was used to construct the Cox regression
+model [@survival-package] [@survival-book].
+
+Cox regression model is based on the hazard function $h_x(t)$ with
+covariates at time t given by:
+
+$h_x(t)=h_0(t)\exp(\beta_1x_1 +\beta_2x_2 + \dots + \beta_p x_p)$
+
+Where:
+
+$h_x(t)$ is the hazard function
+
+$h_0(t)$ is the baseline hazard function
+
+$\beta_1x_1 + \beta_2x_2 + \dots +\beta_p x_p$ represent the linear
+combination of covariates and their coefficient
+
+The hazards for the observation vs. amisole (Lev), or amisole + 5-FU
+group with covariate values x~1~ and x~2~ are given by:
+$hx_1(t)=h_0(t)\exp(\beta_1x_1)$ and $hx_2(t)=h_0(t)\exp(\beta_2x_2)$,
+respectively
+
+The hazard ratio is expressed as: HR = $hx_2(t)$ / $hx_1(t)$ =
+$\exp[\beta(x_2-x_1)]$
+
+The Schoenfeld residual plot was constructed to test Cox proportional
+hazards assumption. When the proportional hazards assumpiton was not met
+for any of the covariates, stratification approach was explored. The
+Survminer [@survminer] package was used to plot the Kaplan-Meier curve
+to visualize the survival probability over time for each treatment
+group.
+
+Multicolinearity was tested using Variant Inflation Factor (VIF)
+calculated using MASS package [@MASS].
+
+The R MASS package was used for Stepwise model selection, using "both"
+forward and backward variable selection [@MASS]. For Stepwise selection,
+stepAIC() function uses AIC (Akaike Information Criterion) as the
+measure to add or remove predictors from the model. Model performance
+was evaluated using 100-fold cross-validation using the boot package
+[@boot1] [@boot2].
+
+# IV. Analysis: Cox regression model
+
+#### Plot survival times
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+# Create new incremental count id
+colon_surv$idcount <- c(1:length(colon_surv$id))
+
+# Order by survival time and create an order variable:
+colon_surv <- colon_surv[order(-colon_surv$time, colon_surv$status),]
+colon_surv$order <- c(1:length(colon_surv$idcount))
+
+ggplot(data=colon_surv, aes(x=time, y=order)) +
+geom_rect(xmin=23,xmax=colon_surv$time,ymin=colon_surv$order,ymax=colon_surv$order+1, colour="lightgray") +
+geom_rect(xmin=colon_surv$time-2,xmax=colon_surv$time,ymin=colon_surv$order,ymax=colon_surv$order+1,
+          fill=factor(colon_surv$status+1)) +
+geom_vline(xintercept= 1976,linetype="solid") +
+scale_x_continuous(breaks=seq(20,3330,650)) +
+geom_text(aes(2600, 750, label="Median Survival Time")) +
+xlab("Survival Time (Days)") + ylab("Participants (ordered by survival time)") +
+ggtitle("Survival Times for Participant") +
+theme_classic() +
+theme(legend.position="none",
+      panel.grid.major=element_blank(),
+      panel.grid.minor=element_blank(),
+      panel.background=element_blank(),
+      axis.line.x = element_line(color = "black"),
+      axis.line.y = element_line(color = "black"))
+
+```
+
+#### Plot survival curve stratified by treatment group
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+
+library(survminer)
+library(survival)
+
+# Estimate the median survival time among the three groups
+survfit(Surv(time,status) ~ rx, data = colon_surv)
+
+# count the number of events after 2080 days, which is the median survival time among the observation group
+tt <- colon_surv%>%filter(time > 2083)%>% group_by(rx)%>%summarise(ct = n(),
+                                                                   death = sum(status))
+# Plot survival curve
+fit <- survfit(Surv(time,status) ~ rx, data = colon_surv)
+ggsurvplot(fit, data=colon_surv, risk.table = TRUE)
+
+# Estimate the probability of surviving beyond 3000 days
+summary(survfit(Surv(time, status) ~ rx, data = colon_surv), times = 3000)
+
+# compare significant diffeerence is survival times between the three groups
+survdiff(Surv(time, status)~ rx, data = colon_surv)
+
+
+```
+
+**Insight:** Based on the survival curve, the mediant survival time for
+the observation group is 2083 days. However, the median survival of Lev
+and Lev+5Fu group cannot be estimated, because there are too few events
+after 2083 days, which is the median survival time in the observation
+group.
+
+The time for 50% survival probability of the group treated with Lev+5Fu
+is over 3000 days while the survival time for the observation and Lev
+group is around 2080 days. The probability of surviving to 3000 days
+among the Lev+5FU group is 56% (95% CI: 50-63), compared to 41% among
+the observation group.
+
+The survival time is significantly different (P=0.003) between the three
+groups.
+
+#### Fit base Model
+
+```{r}
+m0 <- coxph(Surv(time, status) ~ 1, data = colon_surv)
+summary(m0)
+```
+
+### Univariate analysis
+
+##### Test significance of treatment as a predictor
+
+```{r}
+
+#| echo: true
+#| message: false
+#| warning: false
+
+# Univariate analysis
+m1 <- coxph(Surv(time, status) ~ rx, data = colon_surv)
+summary(m1)
+
+
+
+```
+
+**Insight:** the coefficient of Lev is not significant, suggesting that
+there is no evidence that this treatment affects survival time compared
+to observation. however Lev+5Fu is significant (p=0.00175), indicating
+that the treatment Lev +5Fu has a statistically significant effect on
+survival time compared to the reference group. The negative sign
+indicates that this treatment group has a lower hazard and likely a
+longer survival time.
+
+The hazard ratio for Lex+5FU (0.690), indicating the risk of death is
+about 31% lower compared to the observation group.
+
+The p-values indicate that the model is significant.
+
+#### Test the Cox proportional hazard assumption
+
+```{r}
+
+cox.zph(m1)
+zph_test <- cox.zph(m1)
+
+print(zph_test)
+
+# plot the Schoenfeld residuals
+plot(zph_test)
+
+```
+
+**Insight:** The Schoenfeld residal plot shows that the residuals are
+scattered randomly and the smooth trend line is horizontal near 0. This
+suggests that the hazard ratio for rx (treatment status) is constant
+over time and the proportional hazard assumption is met. The global
+p-value is \>0.05, indicating that the the assumption is met.
+
+### Multivariate analysis
+
+#### Include all variables to determine which predictors are significant.
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+
+# Subset data for modeling
+df <- colon_surv%>%dplyr::select(!c(id,study,etype,differ,recurrence, extent,surg_to_reg_time, idcount, order, nodes))
+
+# multivariant analysis
+m2 <- coxph(Surv(time, status) ~ rx+ age + sex + perfor + adhere + surg + obstruct + differentiation + node4+
+              local_spread, data = df)  
+summary(m2)
+
+# Determine significant predictors
+anova(m2)
+
+
+```
+
+**Insight:** When all variables are included in the model, the anova
+test indicates that rx, adhere, surg, obstruct, differentiation, node4
+and local spread are significant predictors.
+
+The concordance of the multivariable model, 0.674, is higher than the
+univariate model (m1, concordance =0.53), suggesting that the
+multivariate model is a better fit model.
+
+#### Calculate Variance Inflation Factor (VIF) to assess multicollinearity among predictors
+
+```{r}
+
+vif <- vif(m2)
+print(vif)
+```
+
+**Insight:** None of the variables have VIF values above 5, therefore
+there is no multicollinearity
+
+#### Evaluate significance of predictors. Model survival while including different cancer characteristics as predictors separately to identify significance predictors.
+
+```{r}
+# model including all variables
+m2 <- coxph(Surv(time, status) ~ rx+ age + sex + perfor + adhere + surg + obstruct + differentiation + node4+
+              local_spread, data = df)  
+
+
+# Treatment
+m2a <- coxph(Surv(time, status) ~ rx, data = colon_surv) # significant
+summary(m2a)
+
+# Demographics
+m2b <- coxph(Surv(time, status) ~ age + sex, data = colon_surv) # not significant
+summary(m2b)
+
+
+# cancer characteristics
+m2c <- coxph(Surv(time, status) ~ perfor + adhere + obstruct, data = colon_surv) # adhere and obstruct are significant
+summary(m2c)
+
+# Differentiation of tumor
+m2d <- coxph(Surv(time, status) ~ differentiation, data = colon_surv) # significant
+summary(m2d)
+
+# Extent of local spread
+m2f <- coxph(Surv(time, status) ~ local_spread, data = colon_surv) # significant
+summary(m2f)
+
+# Recurrence
+# m2g <- coxph(Surv(time, status) ~ recurrence, data = colon_surv) # significant
+# summary(m2g)
+
+# short time from surgery to registration
+m2h <- coxph(Surv(time, status) ~ surg, data = colon_surv) # significant
+summary(m2h)
+
+
+# include significant predictors in final model
+m2i <- coxph(Surv(time, status) ~ rx + adhere + surg + obstruct + differentiation
+              + local_spread, data = colon_surv)
+
+summary(m2i)
+
+
+```
+
+**Insight:** rx, adhere, surg, obstruct, differentiation and
+local_spread are significant predictors. However, the model concordance
+is low (\~0.5) when ecah were included separately. Model m2i has the
+highest conncorance.
+
+### Perform Stepwise variable selection:
+
+#### Use the MASS package stepAIC() function for stepwise selection by using AIC (Akaike Information Criterion) as the measure to add or remove predictors from the model.
+
+```{R}
+
+library(MASS)       # for stepwise regression
+
+
+# model including all variables
+m2 <- coxph(Surv(time, status) ~ rx+ age + sex + perfor + adhere + surg + obstruct + differentiation + node4+
+              local_spread, data = df)  
+
+# stepwise selection
+stepwise_model <- stepAIC(m2, direction = "both")
+
+summary(stepwise_model)
+
+```
+
+```{r}
+
+# Multivariate model including variables selected based on stepwise variable selection. The same variables were significant based on anova test of the model that included all variables.
+
+m3 <- coxph(Surv(time, status) ~ rx + age + surg + obstruct + 
+    differentiation + node4 + local_spread, data = df)
+summary(m3)
+anova(m3)
+
+cox_summary <- tidy(m3)
+
+cox_summary
+
+```
+
+### Test whether proportional hazard assumptions are met for multipvariable moel predictors
+
+```{R}
+m3 <- coxph(Surv(time, status) ~ rx + age + surg + obstruct + 
+    differentiation + node4 + local_spread, data = df)
+summary(m3)
+anova(m3)
+
+cox.zph(m3) # final model with stepwise variable selection
+zph_test <- cox.zph(m3)
+
+print(zph_test)
+
+# plot the Schoenfeld residuals
+plot(zph_test)
+
+
+```
+
+**Insight:** Differentiation, node4 and obstruct variables did not meet
+proportional hazards assumption.
+
+### Stratify model by variables violating roportional hazard assumption
+
+```{r}
+m4 <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 +
+              local_spread, data = df)
+summary(m4)
+
+summary(m4)
+
+cox.zph(m4) # final model with stratification by proportional hazard violating variables 
+zph_test <- cox.zph(m4)
+
+print(zph_test)
+
+# plot the Schoenfeld residuals
+plot(zph_test)
+```
+
+**Insight:** After model stratification by obstruct and differentiation,
+the proportional hazard assumption is met.
+
+### Perform 5-fold cross-validation for model evaluation with proper stratification of boot samples
+
+To include proper stratification in all 5 samples, including fold
+assignment steps
+
+```{r}
+library(survival)
+library(boot)  # for bootstrapping
+library(survcomp)  # to calculate c-index
+library(caret)
+
+
+# set a seed
+set.seed(1234)
+
+# Cox model 
+cox_model <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 + local_spread, data = df)
+
+# calculate the original c-index
+c_index_original <- concordance.index(predict(cox_model), surv.time = df$time, surv.event = df$status)$c.index
+cat("original c-index:", c_index_original, "\n")
+
+# create a function for calculating c-index in each fold
+cox_cindex <- function(train_data, test_data) {
+  fit <- coxph(Surv(time, status) ~ rx + age + surg + strata(obstruct) + strata(differentiation) + node4 + local_spread, data = train_data)
+  predictions <- predict(fit, newdata = test_data)
+  c_index <- concordance.index(predictions, surv.time = test_data$time, surv.event = test_data$status)$c.index
+  return(c_index)
+}
+
+# perform 5-fold cross-validation with stratification
+K <- 5
+folds <- createFolds(c(df$status, df$differentiation, df$rx), k = K, list = TRUE, returnTrain = TRUE)
+cv_c_indices <- sapply(folds, function(train_indices) {
+  train_data <- df[train_indices, ]
+  test_data <- df[-train_indices, ]
+  cox_cindex(train_data, test_data) # cox_cindex is defined to fit the cox model on training data and calculate the c-index for test data in each fold.
+}) # createFolds from the caret package to perform stratified 5-fold cross-validation, ensuring balance across strata
+
+# cross-validation c-indices
+cat("cross-validated c-Indices for each fold:", cv_c_indices, "\n")
+cat("mean cross-validated c-Index:", mean(cv_c_indices), "\n")
+
+# plot cross-validation c-indices
+plot(cv_c_indices, type = "b", xlab = "Fold", ylab = "c-index", main = "c-index across folds")
+
+```
+
+**Insight:** The original model c-index (0.654) and mean
+cross-validation c-index (0.655) is very similar, suggesting the the
+final model is stable and is not overfitting.
+
+# V. Results
+
+### Table 2. Univariate model: Survival after Chemotherapy for stage B/C Colon Cancer
+
+| Treatment      | Coefficient | Hazard ratio | 95% CI_upper | 95% CI_lower | P-value |
+|------------|:----------:|:----------:|:----------:|:----------:|:----------:|
+| Amisole (Lev)  |   -0.027    |    0.974     |    0.784     |    1.209     |  0.809  |
+| Amisole + 5-FU |   -0.372    |    0.690     |    0.546     |    0.870     |  0.002  |
+
+### Table 3. Multivariate model: Survival after Chemotherapy for stage B/C Colon Cancer
+
+| Treatment              | Coefficient | Hazard ratio | 95% CI_upper | 95% CI_lower |    P-value     |
+|------------|:----------:|:----------:|:----------:|:----------:|:----------:|
+| Amisole (Lev)          |   -0.011    |    0.989     |    0.795     |    1.231     |     0.923      |
+| Amisole + 5-FU         |   -0.376    |    0.687     |    0.543     |    0.868     |     0.002      |
+| Age                    |    0.007    |    1.007     |    0.999     |    1.015     |     0.069      |
+| Surge                  |    0.244    |    1.276     |    1.042     |    1.562     |     0.018      |
+| Obstruction of colon   |    0.283    |    1.327     |    1.057     |    1.667     |     0.015      |
+| Differentiat ion_poor  |    0.374    |    1.453     |    1.145     |    1.844     |     0.002      |
+| Differentiat ion_well  |    0.069    |    1.072     |    0.774     |    1.483     |     0.677      |
+| More than 4 nodes (+)  |    0.930    |    2.534     |    2.089     |    3.074     | 3.75 x 10^-21^ |
+| Local spread_muscle    |   -0.996    |    0.370     |    0.225     |    0.606     | 7.85 x 10^-5^  |
+| Local spread_serosa    |   -0.501    |    0.606     |    0.414     |    0.886     |     0.010      |
+| Local spread_submucosa |   -1.322    |    0.267     |    0.093     |    0.763     |     0.014      |
