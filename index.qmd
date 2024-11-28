@@ -197,13 +197,13 @@ for any of the covariates, stratification approach was used.
 
 #### K-fold cross-validation
 
-Model performance was evaluated using 100-fold cross-validation using
+Model performance was evaluated using 5-fold cross-validation using
 the boot package [@boot1] [@boot2].
 
 #### Model selection
 
 The Concordance (c-index), AIC, and BIC of corresponding models were
-compared to select the best fit model. The model with the lowest value
+compared to select the best fit model. The model with the lowest AIC and BIC values and highest concordance
 was selected as the final model.
 
 ## III. Analysis and Results
@@ -265,7 +265,7 @@ na_counts <- sapply(colon_surv, function(x)sum(is.na(x)))
 
 
 # replace NAs with mode
-table(colon_surv$differ)
+#table(colon_surv$differ)
 #mode(colon_surv$differ)
 #median(colon_surv$nodes, na.rm= TRUE)
 
@@ -296,7 +296,9 @@ The data set contained missing values in number of nodes and
 differentiation columns. Missing values in differentiation and node
 columns were replaced with with mode and median, respectively. Numbers
 representing different categories in differentiation, local spread and
-time to surgery columns were replaced with the descriptive names.
+time to surgery columns were replaced with the descriptive names. Evaluation of nodes and node4 showed that samples with greater than 4 lymph nodes have less than 5 count in nodes column, so the two columns are not consistent. Therefore,
+nodes column will not be used for further analysis.
+
 
 ### IIIb. Exploratory data analysis
 
@@ -408,6 +410,7 @@ summary_table <- colon_surv%>%group_by(rx)%>%summarise(count =n(),
 
 
 ```
+
 
 ```{r}
 #| echo: false
@@ -655,8 +658,6 @@ However, The kaplan Mier's curve does not adjust for other variables,
 therefore, some of the predictors may not be significant when included
 in the multivarible Cox regression model.
 
-**Insight:** None of the variables have VIF values above 5, therefore
-there is no multicollinearity
 
 ### IIId. Cox regression models
 
@@ -677,7 +678,7 @@ df <- colon_surv%>%dplyr::select(!c(id,study,etype,differ, extent,surg_to_reg_ti
 #| message: false
 #| warning: false
 #| include: true
-#|
+
 Model_1 <- coxph(Surv(time, status) ~ 1, data = df)
 c_index_model_1 <- concordance(Model_1)
 cat("Concordance of the base model:",c_index_model_1$concordance)
@@ -721,18 +722,13 @@ gt_table
 
 ```
 
-**Insight:** the coefficient of Lev is not significant, suggesting that
+The coefficient of Lev is not significant, suggesting that
 there is no evidence that this treatment affects survival time compared
 to observation. however Lev+5Fu is significant (p=0.00175), indicating
 that the treatment Lev +5Fu has a statistically significant effect on
 survival time compared to the reference group. The negative sign
 indicates that this treatment group has a lower hazard and likely a
-longer survival time.
-
-The hazard ratio for Lex+5FU (0.690), indicating the risk of death is
-about 31% lower compared to the observation group.
-
-The p-values indicate that the model is significant.
+longer survival time. The hazard ratio for Lex+5FU (0.690), indicating the risk of death is about 31% lower compared to the observation group. 
 
 #### Model_2: Cox proportional hazard assumption test
 
@@ -764,8 +760,7 @@ zph_df %>%
 plot(zph_test)
 
 ```
-
-**Insight:** The Schoenfeld residal plot shows that the residuals are
+The Schoenfeld residal plot shows that the residuals are
 scattered randomly and the smooth trend line is horizontal near 0. This
 suggests that the hazard ratio for rx (treatment status) is constant
 over time and the proportional hazard assumption is met. The global
