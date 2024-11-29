@@ -53,9 +53,13 @@ stratification of the model by variables that violate the assumption.
 This allows the baseline hazard to vary across strata
 [@Backmann2024-gv]. Another approach is to include interactions between
 covariates and time, allowing the hazard ratios to change over time
-[@Zhang2018-fl]. While the baseline hazards are allowed to differ, the effects of other covariates are assumed to be the same across strata. One limitation with this approach is that the effect of the stratification variable itself cannot be tested because it is not included as a covariate in the model. Other statistical methods to account for
-non-proportional hazards have been described and are discussed elsewhere
-[@Therneau2010-if].
+[@Zhang2018-fl]. While the baseline hazards are allowed to differ, the
+effects of other covariates are assumed to be the same across strata.
+One limitation with this approach is that the effect of the
+stratification variable itself cannot be tested because it is not
+included as a covariate in the model. Other statistical methods to
+account for non-proportional hazards have been described and are
+discussed elsewhere [@Therneau2010-if].
 
 One of the properties of the Cox PH model contributing to its popularity
 is that the baseline hazard, i.e., $h_0$, is an unspecified field, which
@@ -112,21 +116,23 @@ the final model.
 ### IIa. Data Source
 
 The colon cancer cancer data set is a built-in data set in the Survival
-R package [@survival-package] [@survival-book].Data set includes 929
-subjects with stage B/C colon cancer who were randomized to three
-treatment groups, Observation, Levamisole (Lev), or Levamisole + 5-FU.
-Patients were followed for 5-years after randomization. The data set
-includes survival and recurrence information on 929 individuals, but for
-the current analysis, it was filtered to include only the rows where
-death was the outcome variable. The time to death is given in days. The
-dataset includes various patient characteristics, such as demographics
-and tumor details, as well as the duration from surgery to trial
-registration, categorized as either short or long.
+R package [@survival-package] [@survival-book]. The dataset is closest
+to the original study published in 1991 [@Moertel1990-pd]. The Data set
+includes 929 subjects with stage B or C colon cancer who were randomized
+to three treatment groups, Observation, Levamisole (Lev), or
+Levamisole + Fluorouracil (5-FU). The data set includes survival and
+recurrence information on 929 individuals, but for the current analysis,
+it was filtered to include only the rows where death was the outcome
+variable. The time to death is given in days. The median follow-up
+period was 1,976 days (5.4 years), (range 23-3,329 days). The dataset
+includes various patient characteristics, such as demographics and tumor
+details, as well as the duration from surgery to trial registration,
+categorized as either short or long.
 
 Column names:
 
 |  |  |
-|:----------------------|:------------------------------------------------|
+|:----------------------|:-----------------------------------------------|
 | id: | id |
 | study: | 1 for all patients |
 | rx: | Treatment - Obs(ervation), Lev(amisole), Lev(amisole)+5-FU |
@@ -146,11 +152,11 @@ Column names:
 
 ### IIb. Exploratory data analysis
 
-Multicolinearity was tested using Variant Inflation Factor (VIF)
-calculated using MASS package [@MASS].The Survminer [@survminer] package
-was used to plot the Kaplan-Meier curve to visualize the survival
-probability over time for each of the categorical variables. The data
-was evaluated for missing values, duplicate entry, and outliers.
+The data was evaluated for missing values, duplicate entry, and
+outliers. The Survminer [@survminer] package was used to plot the
+Kaplan-Meier curve to visualize the survival probability over time for
+each of the categorical variables. Multicolinearity was tested using
+Variant Inflation Factor (VIF) calculated using MASS package [@MASS].
 Multicolinearity was tested using Variant Inflation Factor (VIF)
 calculated using MASS package [@MASS].
 
@@ -197,14 +203,14 @@ for any of the covariates, stratification approach was used.
 
 #### K-fold cross-validation
 
-Model performance was evaluated using 5-fold cross-validation using
-the boot package [@boot1] [@boot2].
+Model performance was evaluated using 5-fold cross-validation using the
+boot package [@boot1] [@boot2].
 
 #### Model selection
 
 The Concordance (c-index), AIC, and BIC of corresponding models were
-compared to select the best fit model. The model with the lowest AIC and BIC values and highest concordance
-was selected as the final model.
+compared to select the best fit model. The model with the lowest AIC and
+BIC values and highest concordance was selected as the final model.
 
 ## III. Analysis and Results
 
@@ -296,9 +302,11 @@ The data set contained missing values in number of nodes and
 differentiation columns. Missing values in differentiation and node
 columns were replaced with with mode and median, respectively. Numbers
 representing different categories in differentiation, local spread and
-time to surgery columns were replaced with the descriptive names. Evaluation of nodes and node4 showed that samples with greater than 4 lymph nodes have less than 5 count in nodes column, so the two columns are not consistent. Therefore,
-nodes column will not be used for further analysis.
-
+time to surgery columns were replaced with the descriptive names.
+Evaluation of nodes and node4 showed that samples with greater than 4
+lymph nodes have less than 5 count in nodes column, so the two columns
+are not consistent. Therefore, nodes column will not be used for further
+analysis.
 
 ### IIIb. Exploratory data analysis
 
@@ -411,7 +419,6 @@ summary_table <- colon_surv%>%group_by(rx)%>%summarise(count =n(),
 
 ```
 
-
 ```{r}
 #| echo: false
 #| message: false
@@ -421,9 +428,8 @@ summary_table <- colon_surv%>%group_by(rx)%>%summarise(count =n(),
 ############################
 
 # Subset data for modeling
-# Subset data for modeling
-# Subset data for modeling
 df <- colon_surv %>% dplyr::select(!c(id, study, etype, differ, extent, surg_to_reg_time, nodes))
+
 df <- df %>%
   mutate(time_years = time / 365,
          time_years_round = round(time_years, 0))
@@ -549,7 +555,6 @@ attributed to differences at the start of the study.
 ### IIIc. Survival curves
 
 ```{r}
-
 #| echo: false
 #| message: false
 #| warning: false
@@ -581,9 +586,10 @@ ggplot(data=colon_surv, aes(x=time, y=order)) +
   geom_vline(data=vline_data, aes(xintercept=vline), linetype="solid") +  # Add vertical lines with different values
   geom_text(data=label_data, aes(x=x, y=y, label=label)) +  # Add text labels
   scale_x_continuous(breaks=seq(20, 3330, 650)) +
+  scale_y_continuous(breaks=seq(0, max(colon_surv$order), 100)) +  # Add y-axis labels in increments of 50
   xlab("Survival Time (Days)") + 
   ylab("Participants (ordered by survival time)") +
-  ggtitle("Survival Times for Participant") +
+  ggtitle("Survival Times for Participants Who Were Censored or Died") +
   facet_wrap(~status) +
   theme_classic() +
   theme(
@@ -594,7 +600,6 @@ ggplot(data=colon_surv, aes(x=time, y=order)) +
     axis.line.x = element_line(color = "black"),
     axis.line.y = element_line(color = "black")
   )
-
 ```
 
 **Figure 2: Censoring (left) or survival (right) time of patients**<br>
@@ -648,16 +653,15 @@ ggsurvplot_list(fits, df,  pval=TRUE) #legend.title = legend.title,
 
 There is a statistically significant difference in survival times
 between two or more groups being compared as shown in the survival
-curves stratified by sex, obstruct, adherence to nearby organs, presense
-of four or mor tumor positive nodes, differentiation, local spread and
+curves stratified by sex, obstruct, adherence to nearby organs, presence
+of four or more tumor positive nodes, differentiation, local spread and
 surgery. Survival time is not significantly different between male and
-female or among those with or without tumor perforation. Patient
-characterstics that showed significant differences in survival time
-between two categories are important predicotrs of survival time.
-However, The kaplan Mier's curve does not adjust for other variables,
+female or among those with or without tumor perforation. The vertical lines on the Kaplan-Meier's curve which show censoring data points are enriched after about 1,800 days, suggesting that many of the participants were lost to follow-up after this period. Patient
+characteristics that showed significant differences in survival time
+between two categories are important predictors of survival time.
+However, The Kaplan-Meier's curve does not adjust for other variables,
 therefore, some of the predictors may not be significant when included
-in the multivarible Cox regression model.
-
+in the multivariate Cox regression model.
 
 ### IIId. Cox regression models
 
@@ -722,13 +726,14 @@ gt_table
 
 ```
 
-The coefficient of Lev is not significant, suggesting that
-there is no evidence that this treatment affects survival time compared
-to observation. however Lev+5Fu is significant (p=0.00175), indicating
-that the treatment Lev +5Fu has a statistically significant effect on
+The coefficient of Lev is not significant, suggesting that there is no
+evidence that this treatment affects survival time compared to
+observation. however Lev+5Fu is significant (p=0.00175), indicating that
+the treatment Lev +5Fu has a statistically significant effect on
 survival time compared to the reference group. The negative sign
 indicates that this treatment group has a lower hazard and likely a
-longer survival time. The hazard ratio for Lex+5FU (0.690), indicating the risk of death is about 31% lower compared to the observation group. 
+longer survival time. The hazard ratio for Lex+5FU (0.690), indicating
+the risk of death is about 31% lower compared to the observation group.
 
 #### Model_2: Cox proportional hazard assumption test
 
@@ -760,11 +765,12 @@ zph_df %>%
 plot(zph_test)
 
 ```
-The Schoenfeld residal plot shows that the residuals are
-scattered randomly and the smooth trend line is horizontal near 0. This
-suggests that the hazard ratio for rx (treatment status) is constant
-over time and the proportional hazard assumption is met. The global
-p-value is \>0.05, indicating that the the assumption is met.
+
+The Schoenfeld residal plot shows that the residuals are scattered
+randomly and the smooth trend line is horizontal near 0. This suggests
+that the hazard ratio for rx (treatment status) is constant over time
+and the proportional hazard assumption is met. The global p-value is
+\>0.05, indicating that the the assumption is met.
 
 #### Model_3: All predictors
 
@@ -904,8 +910,13 @@ zph_df %>%
 
 ```
 
-Model_4 does not meet Cox poportional hazard assumption as shown by p-values less than 0.05 in the Schoenfeld residuals test.  Differentiation, node4 and obstruct variables did not meet proportional
-hazards assumption, suggesting that effects of these variables are not constant over time. To overcome this, stratification approach will be used, where the model will be stratified by variables that did not meet proportional hazard.  
+Model_4 does not meet Cox poportional hazard assumption as shown by
+p-values less than 0.05 in the Schoenfeld residuals test.
+Differentiation, node4 and obstruct variables did not meet proportional
+hazards assumption, suggesting that effects of these variables are not
+constant over time. To overcome this, stratification approach will be
+used, where the model will be stratified by variables that did not meet
+proportional hazard.
 
 #### Model_5: Stratified Model
 
@@ -967,8 +978,11 @@ zph_df %>%
 plot(zph_test)
 ```
 
-After model stratification by obstruct and differentiation,
-the proportional hazard assumption is met as the global p-value is >0.05. Node4 slightly violates assumption, but the final model is not stratified by node4 because the model concordance is attenuated when stratifying by node4.
+After model stratification by obstruct and differentiation, the
+proportional hazard assumption is met as the global p-value is \>0.05.
+Node4 slightly violates assumption, but the final model is not
+stratified by node4 because the model concordance is attenuated when
+stratifying by node4.
 
 #### Evaluate multicollinearity of variables in Model_5
 
@@ -981,7 +995,9 @@ the proportional hazard assumption is met as the global p-value is >0.05. Node4 
 vif <- vif(Model_5)
 print(vif)
 ```
-None of the variables has VIF >5, therefore multicollinearity is not a problem in Model_5
+
+None of the variables has VIF \>5, therefore multicollinearity is not a
+problem in Model_5
 
 #### Model comparison
 
@@ -1044,8 +1060,11 @@ results %>%
   kable_styling(position = "center")
 ```
 
-
-Based on the model evaluation metrics, Model_5 has the smallest AIC and BIC values, and achieved highest concordance (c-index). Although Model_2 and Model_5 have the same concordance, Model_5 is the best model as indicated by the smaller AIC and BIC values when compared to Model_2. 5-fold cross-validation was performed to test the robustness of Model_5.
+Based on the model evaluation metrics, Model_5 has the smallest AIC and
+BIC values, and achieved highest concordance (c-index). Although Model_2
+and Model_5 have the same concordance, Model_5 is the best model as
+indicated by the smaller AIC and BIC values when compared to Model_2.
+5-fold cross-validation was performed to test the robustness of Model_5.
 
 #### K-fold cross validation
 
@@ -1096,22 +1115,22 @@ plot(cv_c_indices, type = "b", xlab = "Fold", ylab = "c-index", main = "c-index 
 
 ```
 
-Model_5 c-index (0.674) and mean
-cross-validation c-index (0.675) is very similar, suggesting the the
-final stratified model is stable and is not overfitting.
+Model_5 c-index (0.674) and mean cross-validation c-index (0.675) is
+very similar, suggesting the the final stratified model is stable and is
+not overfitting.
 
 ## IV. Conclusions
 
 -   Treatment with Levamisole + 5-FU decreases the hazard of death from
     colon cancer by 29.5% (HR =0.71, 95% CI: 0.56-0.89; p=0.0035).
 -   Having more than 4 tumor positive lymph nodes significantly
-    increases the hazard of death by 150.3% (p<0.0001).
+    increases the hazard of death by 150.3% (p\<0.0001).
 -   Having a long wait period from surgery to registration for trial is
     associated with an increase in the hazard by 99.5% (p=0.01).
 -   Patients with local tumor spread to the submucosa, muscle and serosa
-    have a reduction in the hazard by 76% (p=0.0007), 66% (p<0.001), and
-    43% (0.004), respectively, compared to those with contiguous organ
-    spread.
+    have a reduction in the hazard by 76% (p=0.0007), 66% (p\<0.001),
+    and 43% (0.004), respectively, compared to those with contiguous
+    organ spread.
 -   The concordance of the model (0.67) indicates moderate predictive
     accuracy for survival time.
 -   Other variables that were not included in the study may contribute
