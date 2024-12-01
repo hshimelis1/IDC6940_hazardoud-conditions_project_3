@@ -198,10 +198,10 @@ respectively
 The hazard ratio is expressed as: HR = $hx_2(t)$ / $hx_1(t)$ =
 $\exp[\beta(x_2-x_1)]$
 
-The R MASS package was used for Step-wise variable selection, using
-"both" forward and backward variable selection [@MASS]. For Step-wise
-selection, stepAIC() function uses AIC (Akaike Information Criterion) as
-the measure to add or remove predictors from the model.
+The R MASS package was used for Stepwise variable selection, using
+"both" forward and backward variable selection [@MASS]. For Stepwise
+variable selection, stepAIC() function uses AIC (Akaike Information
+Criterion) as the measure to add or remove predictors from the model.
 
 ### IId. Model evaluation
 
@@ -218,7 +218,7 @@ boot package [@boot1] [@boot2].
 
 #### Model selection
 
-The Concordance (c-index), AIC, and Baysian Information Criteriod (BIC)
+The Concordance (c-index), AIC, and Baysian Information Criterion (BIC)
 of corresponding models were compared to select the best fit model. The
 model with the lowest AIC and BIC values and highest concordance was
 selected as the final model.
@@ -841,7 +841,7 @@ predictors that were not significant in Model_3.
 
 #### Stepwise variable selection:
 
-A step-wise variable selection approach was used to confirm that the
+A stepwise variable selection approach was used to confirm that the
 significant predictors in Model_3 are the best set of predictors. The
 stepAIC() function from the MASS package was used for stepwise variable
 selection, utilizing the Akaike Information Criterion (AIC) to add or
@@ -863,10 +863,10 @@ selected_variables <- coef(stepwise_model)
 print(selected_variables)
 ```
 
-Based on a step-wise selection, rx, age, surg, obstruct,
-differentiation, node4 and local spread were selected for inclusion in
-the final model. Age is a significant predictor in the step-wise
-selected variables, but not in the full variable model (Model_2).
+Based on a stepwise selection, rx, age, surg, obstruct, differentiation,
+node4 and local spread were selected for inclusion in the final model.
+Age is a significant predictor in the stepwise-selected variables, but
+not in the full variable model (Model_2).
 
 #### Model_4: Stepwise-Selected variables
 
